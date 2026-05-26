@@ -32,16 +32,33 @@ app.get('/api/health', (req, res) => {
 });
 
 // Database Connection and Server Startup
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
+const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGODB_URL || 'mongodb://127.0.0.1:27017';
 
 console.log('Connecting to MongoDB...');
-mongoose.connect(MONGODB_URI)
-  .then(() => {
-    console.log('MongoDB successfully connected.');
-  })
-  .catch((err) => {
-    console.error('MongoDB database connection failure:', err);
-  });
+
+// Global cache for Vercel Serverless environment to prevent connection pooling issues
+let cachedDb = global.mongoose;
+if (!cachedDb) {
+  cachedDb = global.mongoose = { conn: null, promise: null };
+}
+
+async function connectDB() {
+  if (cachedDb.conn) return cachedDb.conn;
+  if (!cachedDb.promise) {
+    cachedDb.promise = mongoose.connect(MONGODB_URI).then((mongoose) => {
+      console.log('MongoDB successfully connected.');
+      return mongoose;
+    }).catch((err) => {
+      console.error('MongoDB database connection failure:', err);
+      throw err;
+    });
+  }
+  cachedDb.conn = await cachedDb.promise;
+  return cachedDb.conn;
+}
+
+// Connect immediately
+connectDB();
 
 // Only listen locally, Vercel will wrap Express automatically in serverless functions without app.listen()
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
